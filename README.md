@@ -11,15 +11,7 @@
   <img src="https://img.shields.io/badge/userscript-Tampermonkey%20%7C%20Violentmonkey-19191b?style=flat-square&labelColor=0f0f10" alt="Tampermonkey & Violentmonkey" />
 </p>
 
-<p>
-  <a href="https://raw.githubusercontent.com/june58-mine/youtube-smart-speed/main/youtube-smart-speed.user.js">
-    <img src="https://img.shields.io/badge/Install_UserScript-v1.0.0-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install YouTube Smart Speed" />
-  </a>
-</p>
-
 </div>
-
----
 
 ## 미리보기
 
@@ -30,8 +22,6 @@
   <p><strong>스마트 배속 설정 모달</strong></p>
   <img src="./assets/settings-modal.png" alt="YouTube Smart Speed 설정 모달 화면" width="440" />
 </div>
-
----
 
 ## 주요 기능
 
@@ -44,13 +34,18 @@
 > [!TIP]
 > 설정 창은 플레이어 우측 액션 바의 원형 배속 버튼(`1.25x`)을 클릭하거나, 키보드에서 <kbd>Shift</kbd> + <kbd>S</kbd>를 눌러 바로 열 수 있습니다.
 
----
-
 ## 설치 방법
 
 1. 브라우저에 [Tampermonkey](https://www.tampermonkey.net/) 또는 [Violentmonkey](https://violentmonkey.github.io/) 확장 프로그램을 설치합니다.
-2. 상단의 **Install UserScript** 버튼(또는 [직접 설치 링크](https://raw.githubusercontent.com/june58-mine/youtube-smart-speed/main/youtube-smart-speed.user.js))을 클릭합니다.
-3. 확장 프로그램 설치 화면이 열리면 **설치(Install)** 를 누릅니다.
+2. 아래 **Install UserScript** 버튼을 클릭합니다:
+
+   <p>
+     <a href="https://raw.githubusercontent.com/june58-mine/youtube-smart-speed/main/youtube-smart-speed.user.js">
+       <img src="https://img.shields.io/badge/Install_UserScript-v1.0.0-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install YouTube Smart Speed" />
+     </a>
+   </p>
+
+3. 확장 프로그램 설치 화면이 열리면 **설치(Install)** 를 누른 뒤 유튜브 탭을 새로고침합니다.
 
 <details>
 <summary>수동 설치 및 업데이트 안내</summary>
@@ -60,8 +55,6 @@
 
 </details>
 
----
-
 ## 단축키
 
 | 동작 | 단축키 |
@@ -70,8 +63,6 @@
 | 배속 올리기 / 내리기 (`0.25x` 단위) | <kbd>Ctrl</kbd> + <kbd>Wheel</kbd> |
 | 설정 창 닫기 | <kbd>Esc</kbd> |
 
----
-
 ## 라이선스
 
-이 프로젝트는 [MIT License](LICENSE)를 따릅니다.
+[MIT License](./LICENSE)를 따릅니다.
