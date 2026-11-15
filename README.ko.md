@@ -9,7 +9,7 @@
 채널·게임·음악 조건에 따라 유튜브 재생 배속을 자동으로 전환하고, `Ctrl + 휠` 미세 조절과 선택적 브라우저 배율 차단을 지원하는 유저스크립트입니다.
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.1.0-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.1.0" />
+  <img src="https://img.shields.io/badge/version-1.1.1-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.1.1" />
   <img src="https://img.shields.io/badge/license-MIT-19191b?style=flat-square&labelColor=0f0f10" alt="MIT License" />
   <img src="https://img.shields.io/badge/userscript-Tampermonkey%20%7C%20Violentmonkey-19191b?style=flat-square&labelColor=0f0f10" alt="Tampermonkey and Violentmonkey" />
 </p>
@@ -52,7 +52,7 @@
 
    <p>
      <a href="https://raw.githubusercontent.com/june58-mine/youtube-smart-speed/main/youtube-smart-speed.user.js">
-       <img src="https://img.shields.io/badge/Install_UserScript-v1.1.0-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.1.0" />
+       <img src="https://img.shields.io/badge/Install_UserScript-v1.1.1-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.1.1" />
      </a>
    </p>
 

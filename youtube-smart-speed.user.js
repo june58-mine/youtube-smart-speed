@@ -4,7 +4,7 @@
 // @name:ja      YouTube スマート倍速
 // @name:zh-CN   YouTube 智能倍速
 // @namespace    https://github.com/june58-mine/youtube-smart-speed
-// @version      1.1.0
+// @version      1.1.1
 // @description  Automatically switches YouTube playback speed by channel, game, and music, with Ctrl+Wheel fine control and optional browser zoom blocking.
 // @description:ko 채널·게임·음악 조건에 따라 유튜브 재생 배속을 자동으로 전환하고, Ctrl+휠 미세 조절 및 브라우저 배율 차단을 지원합니다.
 // @description:ja チャンネル・ゲーム・音楽の条件に応じて YouTube の再生速度を自動切り替えし、Ctrl+ホイールでの微調整やブラウザズームのブロックに対応します。
@@ -31,7 +31,7 @@
 
   const pageWin = typeof unsafeWindow !== 'undefined' ? unsafeWindow : window;
   const pageDoc = pageWin.document || document;
-  if (pageWin.top !== pageWin) return;
+  if (window.top !== window.self) return;
 
   // ---------------------------------------------------------------------------
   // Constants, Default Config & Localization
@@ -467,10 +467,12 @@
   }
 
   let config = loadConfig();
+  let registeredWheelPassive = null;
 
   function saveConfig(nextPartial = null) {
     config = sanitizeConfig(nextPartial ? { ...config, ...nextPartial } : config);
     writeConfigRaw(config);
+    syncWheelListener();
   }
 
   function resolveLocale() {
@@ -1409,25 +1411,38 @@
     return Boolean(modal && !modal.hidden);
   }
 
-  pageWin.addEventListener(
-    'wheel',
-    (e) => {
-      if (!e.ctrlKey || !e.deltaY || isSettingsModalOpen()) return;
-      const video = getActiveWatchVideo();
-      if (!video) return;
+  function handleCtrlWheel(e) {
+    if (!e.ctrlKey || !e.deltaY || isSettingsModalOpen()) return;
+    const video = getActiveWatchVideo();
+    if (!video) return;
 
-      if (config.blockCtrlWheelZoom) {
-        e.preventDefault();
-        e.stopPropagation();
-      }
-      const stepDelta = (e.deltaY < 0 ? 1 : -1) * config.speedStep;
-      const nextRate = Math.round((video.playbackRate + stepDelta) * 100) / 100;
-      setSpeed(nextRate, true);
-    },
-    { passive: false, capture: true }
-  );
+    if (config.blockCtrlWheelZoom) {
+      if (e.cancelable) e.preventDefault();
+      e.stopPropagation();
+    }
+    const stepDelta = (e.deltaY < 0 ? 1 : -1) * config.speedStep;
+    const nextRate = Math.round((video.playbackRate + stepDelta) * 100) / 100;
+    setSpeed(nextRate, true);
+  }
 
-  pageWin.addEventListener(
+  function syncWheelListener() {
+    const nextPassive = !config.blockCtrlWheelZoom;
+    if (registeredWheelPassive === nextPassive) return;
+    if (registeredWheelPassive !== null) {
+      window.removeEventListener('wheel', handleCtrlWheel, { capture: true });
+    }
+    // Keep the wheel listener passive while zoom blocking is off so Chromium's
+    // compositor takes the non-blocking path for Ctrl+Wheel / pinch browser zoom.
+    window.addEventListener('wheel', handleCtrlWheel, {
+      passive: nextPassive,
+      capture: true,
+    });
+    registeredWheelPassive = nextPassive;
+  }
+
+  syncWheelListener();
+
+  window.addEventListener(
     'keydown',
     (e) => {
       if (e.key === 'Escape' && isSettingsModalOpen()) {

@@ -7,7 +7,7 @@
 A userscript that automatically switches YouTube playback speed by channel, game, and music, with `Ctrl + Wheel` fine control and optional browser zoom blocking.
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.1.0-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.1.0" />
+  <img src="https://img.shields.io/badge/version-1.1.1-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.1.1" />
   <img src="https://img.shields.io/badge/license-MIT-19191b?style=flat-square&labelColor=0f0f10" alt="MIT License" />
   <img src="https://img.shields.io/badge/userscript-Tampermonkey%20%7C%20Violentmonkey-19191b?style=flat-square&labelColor=0f0f10" alt="Tampermonkey and Violentmonkey" />
 </p>
@@ -50,7 +50,7 @@ A userscript that automatically switches YouTube playback speed by channel, game
 
    <p>
      <a href="https://raw.githubusercontent.com/june58-mine/youtube-smart-speed/main/youtube-smart-speed.user.js">
-       <img src="https://img.shields.io/badge/Install_UserScript-v1.1.0-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.1.0" />
+       <img src="https://img.shields.io/badge/Install_UserScript-v1.1.1-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.1.1" />
      </a>
    </p>
 
