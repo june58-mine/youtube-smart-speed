@@ -9,7 +9,7 @@
 根据频道、游戏和音乐条件自动切换 YouTube 播放倍速，并支持 `Ctrl + 滚轮` 微调及可选拦截浏览器缩放的用户脚本。
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.1.1-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.1.1" />
+  <img src="https://img.shields.io/badge/version-1.2.0-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.2.0" />
   <img src="https://img.shields.io/badge/license-MIT-19191b?style=flat-square&labelColor=0f0f10" alt="MIT License" />
   <img src="https://img.shields.io/badge/userscript-Tampermonkey%20%7C%20Violentmonkey-19191b?style=flat-square&labelColor=0f0f10" alt="Tampermonkey and Violentmonkey" />
 </p>
@@ -30,9 +30,9 @@
 
 ### 智能倍速规则
 
-- **按条件自动切换倍速**: 普通视频使用默认倍速（默认 `1.25x`），已添加的游戏、频道或音乐视频自动切换为指定倍速（默认 `1.00x`）。
-- **一键添加频道与游戏**: 观看视频时直接点击 `+ 当前游戏` 或 `+ 当前频道` 即可加入列表。
-- **音乐视频自动降速** (`默认开启`): 播放 YouTube Music、官方音源/MV 或混合播放列表（`list=RD`）时自动应用指定倍速。
+- **即时按条件切换倍速**: 普通视频使用默认倍速（默认 `1.25x`），已添加的游戏、频道或音乐视频在播放页（`/watch`、`/live/*`、`/shorts/*`）及 YouTube Music 中无需等待即可即时切换为指定倍速（默认 `1.00x`）。
+- **一键添加频道与游戏**: 观看视频时直接点击 `+ 当前游戏` 或 `+ 当前频道` 即可加入列表，内置中·英·韩·日多语言游戏别名与词边界校验，减少误识别。
+- **音乐视频自动降速** (`默认开启`): 播放 YouTube Music、混合播放列表（`list=RD`）、Topic 音源、官方音乐人频道、音乐卡片以及官方音源/MV（含娱乐分类）时自动应用指定倍速。
 
 ### Ctrl+滚轮控制
 
@@ -52,7 +52,7 @@
 
    <p>
      <a href="https://raw.githubusercontent.com/june58-mine/youtube-smart-speed/main/youtube-smart-speed.user.js">
-       <img src="https://img.shields.io/badge/Install_UserScript-v1.1.1-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.1.1" />
+       <img src="https://img.shields.io/badge/Install_UserScript-v1.2.0-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.2.0" />
      </a>
    </p>
 
@@ -78,8 +78,8 @@
 ## 技术与兼容性说明
 
 - 使用 `GM_getValue` 和 `GM_setValue` 保存配置（支持 `localStorage` 回退），并会自动迁移 `v1.0.0` 的 `localStorage` 数据，在 `www.youtube.com` 与 `music.youtube.com` 之间共享设置。
-- 通过 `unsafeWindow` 安全读取播放器响应数据并调用 `setPlaybackRate`，同时借助 `GM_registerMenuCommand` 在扩展菜单中提供设置入口。
-- 监听 YouTube SPA 路由事件（`yt-navigate-finish`、`yt-page-data-updated`、`popstate`）以确保切页后按钮和倍速逻辑持续有效，并在全屏时将弹窗挂载到 `fullscreenElement` 内。
+- 在 `@run-at document-start` 阶段注入并即时响应 `yt-player-updated`、`yt-navigate-finish` 与早期媒体事件，仅采信匹配当前视频 ID 的 `playerResponse` 与 `watchNext` 元数据（兼容 Firefox XrayWrapper 与 DOM 回退）。
+- 保存设置时预编译频道/游戏匹配器，无需常驻 DOM 监听器即可直接读取新版 `videoAttributesSectionViewModel` 与 `horizontalCardListRenderer` 数据。
 - 样式与设置界面全部采用原生 DOM API 和 `textContent` 构建，不使用 `innerHTML`，可正常通过 YouTube 的 Trusted Types CSP 校验。
 
 ## 开源协议

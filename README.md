@@ -7,7 +7,7 @@
 A userscript that automatically switches YouTube playback speed by channel, game, and music, with `Ctrl + Wheel` fine control and optional browser zoom blocking.
 
 <p>
-  <img src="https://img.shields.io/badge/version-1.1.1-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.1.1" />
+  <img src="https://img.shields.io/badge/version-1.2.0-19191b?style=flat-square&labelColor=0f0f10" alt="Version 1.2.0" />
   <img src="https://img.shields.io/badge/license-MIT-19191b?style=flat-square&labelColor=0f0f10" alt="MIT License" />
   <img src="https://img.shields.io/badge/userscript-Tampermonkey%20%7C%20Violentmonkey-19191b?style=flat-square&labelColor=0f0f10" alt="Tampermonkey and Violentmonkey" />
 </p>
@@ -28,9 +28,9 @@ A userscript that automatically switches YouTube playback speed by channel, game
 
 ### Smart Speed Rules
 
-- **Conditional speed switching**: Uses your default speed (`1.25x` by default) for regular videos and automatically switches to your designated speed (`1.00x` by default) for registered games, channels, or music.
-- **One-click channel & game registration**: Click `+ Current game` or `+ Current channel` while watching a video to add it immediately.
-- **Auto-slow for music** (`Default: ON`): Automatically applies the slow speed on YouTube Music, official music videos/tracks, and Mix playlists (`list=RD`).
+- **Instant conditional speed switching**: Uses your default speed (`1.25x` by default) for regular videos and switches immediately at playback start to your designated speed (`1.00x` by default) for registered games, channels, or music across watch, live, Shorts, and YouTube Music pages.
+- **One-click channel & game registration**: Click `+ Current game` or `+ Current channel` while watching a video to add it immediately, with built-in cross-language game alias matching (EN/KO/JA/ZH) and word-boundary guards to avoid false positives.
+- **Auto-slow for music** (`Default: ON`): Automatically applies the slow speed on YouTube Music, Mix playlists (`list=RD`), Topic tracks, Official Artist Channels, music attribution cards, and official MVs/audio—even when uploaded under `Entertainment`.
 
 ### Ctrl+Wheel Control
 
@@ -50,7 +50,7 @@ A userscript that automatically switches YouTube playback speed by channel, game
 
    <p>
      <a href="https://raw.githubusercontent.com/june58-mine/youtube-smart-speed/main/youtube-smart-speed.user.js">
-       <img src="https://img.shields.io/badge/Install_UserScript-v1.1.1-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.1.1" />
+       <img src="https://img.shields.io/badge/Install_UserScript-v1.2.0-e5484d?style=for-the-badge&logo=youtube&logoColor=white" alt="Install UserScript v1.2.0" />
      </a>
    </p>
 
@@ -75,8 +75,8 @@ A userscript that automatically switches YouTube playback speed by channel, game
 ## Technical & Compatibility Notes
 
 - Stores preferences via `GM_getValue` and `GM_setValue` (with `localStorage` fallback) and migrates `v1.0.0` `localStorage` data automatically, sharing settings between `www.youtube.com` and `music.youtube.com`.
-- Uses `unsafeWindow` to read player response metadata and update `setPlaybackRate` cleanly while registering the **Settings** menu command via `GM_registerMenuCommand`.
-- Tracks YouTube SPA navigation (`yt-navigate-finish`, `yt-page-data-updated`, `popstate`) to re-apply rules per video and keep the action-bar button mounted, and mounts the modal inside `fullscreenElement` when fullscreen is active.
+- Runs from `@run-at document-start` and reacts immediately to `yt-player-updated`, `yt-navigate-finish`, and early media events with video-ID-validated `playerResponse` / `watchNext` inspection (supporting Firefox XrayWrappers and DOM fallbacks).
+- Precompiles channel/game matchers at config save and reads YouTube's modern `videoAttributesSectionViewModel` and `horizontalCardListRenderer` metadata directly without polling or heavy DOM observers.
 - Builds styles and UI elements exclusively with DOM APIs and `textContent` without `innerHTML`, complying with YouTube's Trusted Types CSP.
 
 ## License

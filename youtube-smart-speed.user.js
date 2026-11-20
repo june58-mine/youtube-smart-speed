@@ -4,7 +4,7 @@
 // @name:ja      YouTube スマート倍速
 // @name:zh-CN   YouTube 智能倍速
 // @namespace    https://github.com/june58-mine/youtube-smart-speed
-// @version      1.1.1
+// @version      1.2.0
 // @description  Automatically switches YouTube playback speed by channel, game, and music, with Ctrl+Wheel fine control and optional browser zoom blocking.
 // @description:ko 채널·게임·음악 조건에 따라 유튜브 재생 배속을 자동으로 전환하고, Ctrl+휠 미세 조절 및 브라우저 배율 차단을 지원합니다.
 // @description:ja チャンネル・ゲーム・音楽の条件に応じて YouTube の再生速度を自動切り替えし、Ctrl+ホイールでの微調整やブラウザズームのブロックに対応します。
@@ -23,7 +23,7 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        unsafeWindow
-// @run-at       document-idle
+// @run-at       document-start
 // ==/UserScript==
 
 (function () {
@@ -466,12 +466,234 @@
     return localRaw ? sanitizeConfig(localRaw) : { ...DEFAULT_CONFIG };
   }
 
+  function unwrap(obj) {
+    try {
+      return obj && typeof obj === 'object' && obj.wrappedJSObject ? obj.wrappedJSObject : obj;
+    } catch {
+      return obj;
+    }
+  }
+
+  function normalizeBase(str) {
+    return String(str || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .normalize('NFKC')
+      .toLowerCase()
+      .replace(/[\u2018\u2019`’‘]/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function normalizeCompact(str) {
+    return normalizeBase(str).replace(/[^a-z0-9가-힣ぁ-ゔァ-ヴー一-龯]+/g, '');
+  }
+
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  function stripTopicSuffix(author) {
+    return String(author || '')
+      .replace(/\s*[-–—]\s*(?:topic|주제|트픽|トピック|主题|主題|thema|tema|temat)$/i, '')
+      .trim();
+  }
+
+  const GAME_ALIAS_GROUPS = [
+    ['League of Legends', '리그 오브 레전드', '롤', 'LoL', 'リーグ・オブ・レジェンド', '英雄联盟', '英雄聯盟'],
+    ['Valorant', '발로란트', '발로', 'ヴァロラント', '无畏契约', '特戰英豪'],
+    ['Minecraft', '마인크래프트', '마크', 'マインクラフト', 'マイクラ', '我的世界'],
+    ['Genshin Impact', '원신', '原神'],
+    ['Honkai: Star Rail', '붕괴: 스타레일', '붕괴 스타레일', '스타레일', '붕스', '崩壊：スターレイル', '崩壊スターレイル', '崩坏：星穹铁道', '崩坏星穹铁道'],
+    ['Zenless Zone Zero', '젠레스 존 제로', '젠존제', 'ZZZ', 'ゼンレスゾーンゼロ', 'ゼンゼロ', '绝区零'],
+    ['Wuthering Waves', '명조: 워더링 웨이브', '명조 워더링 웨이브', '명조', '鳴潮'],
+    ['Blue Archive', '블루 아카이브', '블루아카이브', '블아', 'ブルーアーカイブ', 'ブルアカ', '碧蓝档案'],
+    ['Elden Ring', '엘든 링', '엘든링', 'エルデンリング', '艾尔登法环'],
+    ['Overwatch', 'Overwatch 2', '오버워치', '오버워치 2', '옵치', 'オーバーウォッチ', 'オーバーウォッチ2', '守望先锋'],
+    ['PUBG: BATTLEGROUNDS', 'PUBG', "PLAYERUNKNOWN'S BATTLEGROUNDS", '배틀그라운드', '배그', '絶地求生', '绝地求生'],
+    ['Lost Ark', '로스트아크', '로스트 아크', '로아', 'ロストアーク', '命运方舟'],
+    ['MapleStory', '메이플스토리', '메이플 스토리', '메이플', 'メイプルストーリー', '冒险岛'],
+    ['Dungeon & Fighter', 'Dungeon Fighter Online', 'DFO', '던전앤파이터', '던전 앤 파이터', '던파', 'アラド戦記', '地下城与勇士'],
+    ['Eternal Return', '이터널 리턴', '이터널리턴', '이리', 'エターナルリターン', '永恒轮回'],
+    ['Counter-Strike 2', 'Counter-Strike', 'CS2', 'CS:GO', 'CSGO', 'CS', '카운터 스트라이크', '카운터스트라이크', '카스', 'カウンターストライク', '反恐精英'],
+    ['Dota 2', '도타 2', '도타2', '도타', '刀塔2'],
+    ['Apex Legends', '에이펙스 레전드', '에이펙스레전드', '에이펙스', 'エーペックスレジェンズ', 'Apex英雄'],
+    ['Fortnite', '포트나이트', 'フォートナイト', '堡垒之夜'],
+    ['Roblox', '로블록스', 'ロブロックス', '罗布乐思'],
+    ['Grand Theft Auto V', 'Grand Theft Auto 5', 'GTA 5', 'GTA V', 'GTA5', 'GTAV', 'GTA', '그타', '그랜드 테프트 오토 5', '侠盗猎车手5'],
+    ['StarCraft', 'StarCraft II', 'StarCraft 2', '스타크래프트', '스타크래프트 2', '스타', 'スタークラフト', '星际争霸'],
+    ['Diablo', 'Diablo IV', 'Diablo 4', 'Diablo II', 'Diablo 2', '디아블로', '디아블로 4', '디아블로 2', 'ディアブロ', '暗黑破坏神'],
+    ['World of Warcraft', 'WoW', '월드 오브 워크래프트', '와우', 'ワールド・オブ・ウォークラフト', '魔兽世界'],
+    ['Hearthstone', '하스스톤', 'ハースストーン', '炉石传说'],
+    ['Teamfight Tactics', 'TFT', '전략적 팀 전투', '전략적 팀전투', '롤토체스', '롤체', 'チームファイト タクティクス', '金铲铲之战', '云顶之弈'],
+    ['Escape from Tarkov', 'Tarkov', '이스케이프 프롬 타르코프', '타르코프', 'タルコフ', '逃离塔科夫'],
+    ['Cyberpunk 2077', '사이버펑크 2077', '사이버펑크', 'サイバーパンク2077', '赛博朋克2077'],
+    ["Baldur's Gate 3", "Baldur's Gate", 'Baldurs Gate 3', 'Baldurs Gate', 'BG3', '발더스 게이트 3', '발더스 게이트', '발더스게이트', 'バルダーズ・ゲート3', '博德之门3'],
+    ['Monster Hunter', 'Monster Hunter Wilds', 'Monster Hunter: World', 'Monster Hunter Rise', '몬스터 헌터', '몬스터헌터', '몬헌', '몬헌 와일즈', 'モンスターハンター', 'モンハン', '怪物猎人'],
+    ['Palworld', '팰월드', '팔월드', 'パルワールド', '幻兽帕鲁'],
+    ['Tekken', 'Tekken 8', '철권', '철권 8', '철권8', '鉄拳', '鉄拳8', '铁拳'],
+    ['Street Fighter', 'Street Fighter 6', 'SF6', '스트리트 파이터', '스트리트 파이터 6', '스파', '스파6', 'ストリートファイター', 'スト6', '街头霸王'],
+    ['Pokemon', '포켓몬스터', '포켓몬', 'ポケモン', 'ポケットモンスター', '宝可梦'],
+    ['The Legend of Zelda', 'Zelda', '젤다의 전설', '젤다', 'ゼルダの伝説', 'ゼルダ', '塞尔达传说'],
+    ['Super Mario', 'Mario', '슈퍼 마리오', '마리오', 'スーパーマリオ', 'マリオ', '超级马力欧'],
+    ['Animal Crossing', '동물의 숲', '동숲', '모여봐요 동물의 숲', '모동숲', 'どうぶつの森', 'あつ森', '动物森友会'],
+    ['Splatoon', 'Splatoon 3', '스플래툰', '스플래툰 3', 'スプラトゥーン', 'スプラ3', '斯普拉遁'],
+    ['Dark Souls', 'Dark Souls III', 'Dark Souls 3', '다크 소울', '다크 소울 3', '다크소울', 'ダークソウル', '黑暗之魂'],
+    ['Sekiro: Shadows Die Twice', 'Sekiro', '세키로', '只狼'],
+    ['Hollow Knight', 'Hollow Knight: Silksong', '할로우 나이트', '할로우나이트', '실크송', 'ホロウナイト', '空洞骑士'],
+    ['Terraria', '테라리아', 'テラリア', '泰拉瑞亚'],
+    ['Stardew Valley', '스타듀 밸리', '스타듀밸리', '스듀', 'スターデューバレー', '星露谷物语'],
+    ['Dead by Daylight', 'DBD', '데드 바이 데이라이트', '데바데', 'デッドバイデイライト', '黎明杀机'],
+    ['Among Us', '어몽 어스', '어몽어스', 'アモングアス', '在我们之中'],
+    ['Lethal Company', '리썰 컴퍼니', '리썰컴퍼니', 'リーサルカンパニー', '致命公司'],
+    ['Balatro', '발라트로', 'バラトロ', '小丑牌'],
+    ['Slay the Spire', '슬레이 더 스파이어', '슬더스', 'スレイザスパイア', '杀戮尖塔'],
+    ['Call of Duty', 'CoD', '콜 오브 듀티', '콜옵', 'コール オブ デューティ', '使命召唤'],
+    ['Battlefield', '배틀필드', 'バトルフィールド', '战地'],
+    ['EA Sports FC', 'EA SPORTS FC 25', 'EA SPORTS FC 24', 'FIFA', '피파', 'FC 온라인', 'FC Online', '피파 온라인'],
+    ['Sudden Attack', '서든어택', '서든 어택', '서든'],
+    ['KartRider', 'KartRider: Drift', '카트라이더', '카트라이더: 드리프트', '카트', '跑跑卡丁车'],
+    ['Final Fantasy', 'Final Fantasy XIV', 'FF14', 'FF7', '파이널 판타지', '파이널판타지', '파판', '파판14', 'ファイナルファンタジー', '最终幻想'],
+    ['Persona', 'Persona 5', 'Persona 3 Reload', '페르소나', '페르소나 5', '페르소나 3', 'ペルソナ', '女神异闻录'],
+    ['Yu-Gi-Oh!', 'Yu-Gi-Oh! Master Duel', 'Yu-Gi-Oh', '유희왕', '유희왕 마스터 듀얼', '마듀', '遊戯王', '游戏王'],
+    ['Rust', '러스트'],
+    ['ARK: Survival Evolved', 'ARK: Survival Ascended', 'ARK', '아크 서바이벌', '아크'],
+    ['Path of Exile', 'Path of Exile 2', 'PoE', 'PoE 2', '패스 오브 엑자일', '패스오브엑자일', '패오엑', '포이', 'パス オブ エグザイル', '流放之路'],
+    ['Destiny 2', '데스티니 가디언즈', '데스티니 2', 'デスティニー2', '命运2'],
+    ['Helldivers 2', 'Helldivers', '헬다이버즈 2', '헬다이버즈', 'ヘルダイバー2', '绝地潜兵2'],
+    ['Stellar Blade', '스텔라 블레이드', '스텔라블레이드', 'ステラーブレイド', '剑星'],
+    ['Black Myth: Wukong', '검은 신화: 오공', '검은 신화 오공', '黒神話：悟空', '黑神话：悟空'],
+    ['GODDESS OF VICTORY: NIKKE', 'NIKKE', '승리의 여신: 니케', '니케', '勝利の女神：NIKKE', '胜利女神：妮姬'],
+    ['Umamusume: Pretty Derby', 'Umamusume', '우마무스메 프리티 더비', '우마무스메', '말딸', 'ウマ娘 プリティーダービー', 'ウマ娘', '赛马娘'],
+    ['Limbus Company', '림버스 컴퍼니', '림버스컴퍼니', '림버스', 'リンバスカンパニー', '边狱巴士公司'],
+    ['Brawl Stars', '브롤스타즈', '브롤 스타즈', 'ブロスタ', '荒野乱斗'],
+    ['Clash Royale', '클래시 로얄', '클래시로얄', 'クラロワ', '皇室战争'],
+    ['Mabinogi', 'Mabinogi Mobile', '마비노기', '마비노기 모바일', '마비', 'マビノギ', '洛奇'],
+    ["Tom Clancy's Rainbow Six Siege", 'Rainbow Six Siege', 'R6', '레인보우 식스 시즈', '레식', 'レインボーシックス シージ'],
+    ['Left 4 Dead 2', 'L4D2', '레프트 4 데드 2', '레포데'],
+  ];
+
+  const SHORT_AMBIGUOUS_ALIASES = new Set([
+    'lol', 'ark', 'rust', 'wow', 'cs', 'tft', 'poe', 'cod', 'fc', 'r6', 'zzz',
+    'bg3', 'dbd', 'sf6', 'dfo', '롤', '마크', '스타', '로아', '발로', '이리',
+    '스파', '아크', '와우', '서든', '카트', '카스', '마비', '포이', '레식',
+    '스듀', '마듀', '말딸', '옵치', '배그', '그타',
+  ]);
+
+  const GAME_ALIAS_MAP = new Map();
+  for (const group of GAME_ALIAS_GROUPS) {
+    const normalizedGroup = Array.from(new Set(group.map((a) => normalizeBase(a)).filter(Boolean)));
+    for (const alias of normalizedGroup) {
+      GAME_ALIAS_MAP.set(alias, normalizedGroup);
+      const compact = normalizeCompact(alias);
+      if (compact && compact.length >= 2 && !GAME_ALIAS_MAP.has(compact)) {
+        GAME_ALIAS_MAP.set(compact, normalizedGroup);
+      }
+    }
+  }
+
+  function compileBoundaryRegex(norm) {
+    if (!norm) return null;
+    const parts = norm.split(/[\s\-:]+/).filter(Boolean);
+    const body = parts.length > 1 ? parts.map(escapeRegex).join('[\\s\\-:]+') : escapeRegex(norm);
+    const first = norm.charAt(0);
+    const last = norm.charAt(norm.length - 1);
+    const left = /[a-z0-9]/.test(first)
+      ? '(?:^|[^a-z0-9])'
+      : /[가-힣]/.test(first)
+        ? '(?:^|[^가-힣])'
+        : '';
+    const right = /[a-z0-9]/.test(last)
+      ? '(?:$|[^a-z0-9])'
+      : /[가-힣]/.test(last)
+        ? '(?:$|[^가-힣]|(?:은|는|이|가|을|를|의|에|에서|도|로|으로|과|와|랑|이랑|만|부터|까지)(?:$|[^가-힣]))'
+        : '';
+    return new RegExp(left + body + right, 'i');
+  }
+
+  function compileTermMatcher(term, opts = {}) {
+    const norm = normalizeBase(term);
+    if (!norm) return null;
+    const compact = normalizeCompact(norm);
+    const isAmbiguous = Boolean(
+      opts.isAmbiguous ||
+      SHORT_AMBIGUOUS_ALIASES.has(norm) ||
+      norm.length <= 1 ||
+      (/^[a-z0-9]+$/.test(norm) && norm.length <= 2)
+    );
+    const hasNonAscii = /[^a-z0-9\s\-:'!]/.test(norm);
+    const allowCompact =
+      !isAmbiguous &&
+      ((hasNonAscii && compact.length >= 3) || (!hasNonAscii && norm.includes(' ') && compact.length >= 6));
+    return {
+      norm,
+      compact,
+      allowCompact,
+      exactOnly: norm.length < 2,
+      requiresGamingContext: isAmbiguous,
+      re: compileBoundaryRegex(norm),
+    };
+  }
+
+  let compiledRules = { revision: 0, channels: [], games: [], keywords: [] };
+
+  function rebuildCompiledRules() {
+    const channels = [];
+    for (const raw of config.channels) {
+      const norm = normalizeBase(raw);
+      if (!norm) continue;
+      const coreNorm = normalizeBase(stripTopicSuffix(raw));
+      channels.push({
+        raw,
+        norm,
+        coreNorm: coreNorm || norm,
+        compact: normalizeCompact(norm),
+        re: compileBoundaryRegex(norm),
+        coreRe: coreNorm && coreNorm !== norm ? compileBoundaryRegex(coreNorm) : null,
+      });
+    }
+
+    const games = [];
+    for (const raw of config.games) {
+      const norm = normalizeBase(raw);
+      if (!norm) continue;
+      const compact = normalizeCompact(norm);
+      const group = GAME_ALIAS_MAP.get(norm) || (compact.length >= 3 ? GAME_ALIAS_MAP.get(compact) : null);
+      const aliasStrings = group ? Array.from(new Set([norm, ...group])) : [norm];
+      const aliases = [];
+      const seenAliases = new Set();
+      for (const a of aliasStrings) {
+        const m = compileTermMatcher(a);
+        if (m && !seenAliases.has(m.norm)) {
+          seenAliases.add(m.norm);
+          aliases.push(m);
+        }
+      }
+      if (aliases.length) games.push({ raw, norm, aliases });
+    }
+
+    const keywords = [];
+    for (const raw of config.keywords) {
+      const m = compileTermMatcher(raw, { isAmbiguous: false });
+      if (m) keywords.push({ raw, ...m });
+    }
+
+    compiledRules = {
+      revision: compiledRules.revision + 1,
+      channels,
+      games,
+      keywords,
+    };
+  }
+
   let config = loadConfig();
+  rebuildCompiledRules();
   let registeredWheelPassive = null;
 
   function saveConfig(nextPartial = null) {
     config = sanitizeConfig(nextPartial ? { ...config, ...nextPartial } : config);
     writeConfigRaw(config);
+    rebuildCompiledRules();
     syncWheelListener();
   }
 
@@ -496,15 +718,28 @@
   // State & DOM Helpers
   // ---------------------------------------------------------------------------
 
+  const MOUNT_RETRY_DELAYS = [80, 200, 500, 1200];
+
   let currentVideoId = '';
+  let initialPageVideoId = '';
   let isManualOverride = false;
   let toastTimeout = null;
   let feedbackTimeout = null;
   let navApplyTimer = null;
-  let mountRetryTimers = [];
-  let pendingPlayTarget = null;
-  let pendingPlayHandler = null;
+  let mountRetryTimer = null;
   let modalState = null;
+
+  let toastEl = null;
+  let toastRateEl = null;
+  let toastMetaEl = null;
+
+  let cachedNavData = { videoId: '', playerResponse: null, watchNext: null };
+  let lastAppliedState = null;
+  let lastEvalKey = '';
+  let lastAutoApplyAt = 0;
+  let internalRateWriteUntil = 0;
+  let startupResetRetries = 0;
+  let boundVideo = null;
 
   function el(tag, cls, ...children) {
     const node = pageDoc.createElement(tag);
@@ -619,6 +854,11 @@
       #${TOAST_ID}.is-visible {
         opacity: 1;
         transform: translate(-50%, 0);
+      }
+      #${TOAST_ID}.ytss-toast-fixed {
+        position: fixed;
+        top: 72px;
+        left: 50%;
       }
       .ytss-toast-rate {
         font-weight: 500;
@@ -1208,15 +1448,116 @@
   // Video Metadata & Speed Rules
   // ---------------------------------------------------------------------------
 
+  const MUSIC_CATEGORIES = new Set([
+    'music', 'musica', 'música', 'musique', 'musik', 'muzyka',
+    '음악', '音楽', '音乐', '音樂', 'музыка',
+  ]);
+  const NON_MUSIC_CATEGORIES = new Set([
+    'gaming', '게임', 'ゲーム', '游戏', '遊戲',
+    'news & politics', 'science & technology', 'autos & vehicles',
+    'sports', 'education', 'howto & style', 'pets & animals',
+  ]);
+  const GAMING_CATEGORIES = new Set(['gaming', '게임', 'ゲーム', '游戏', '遊戲']);
+  const ARTIST_BADGE_LABELS = new Set([
+    'official artist channel',
+    '공식 아티스트 채널',
+    '公式アーティスト チャンネル',
+    '公式アーティストチャンネル',
+    '官方音乐人频道',
+    '官方藝人頻道',
+  ]);
+  const MUSIC_SECTION_HEADERS = new Set([
+    'music', 'musica', 'musique', 'musik', '음악', '音楽', '音乐', '音樂',
+  ]);
+  const GAME_SECTION_HEADERS = new Set([
+    'gaming', 'game', 'games', '게임', 'ゲーム', '游戏', '遊戲',
+  ]);
+
+  const TOPIC_AUTHOR_RE = /\s[-–—]\s(?:topic|주제|트픽|トピック|主题|主題|thema|tema|temat)$/i;
+  const PROVIDED_TO_YT_RE = /^\s*provided to youtube by\b/i;
+  const AUTO_GENERATED_RE = /auto-generated by youtube\.?\s*$/i;
+  const GAMING_CONTEXT_RE =
+    /(?:^|[^a-z0-9])(?:gameplay|playthrough|walkthrough|speedrun|let'?s\s+play|esports|lck|lpl|lec|lcs|ranked|montage|patch\s+notes|tier\s+list|gaming|gamer|stream\s+vod|boss\s+fight|no\s+hit|no\s+damage)(?:$|[^a-z0-9])|게임|플레이|공략|매드무비|솔랭|칼바람|협곡|챌린저|실황|実況|プレイ動画|ゲーム|攻略|实况|游戏/i;
+  const SPEECH_NON_MUSIC_RE =
+    /(?:^|[^a-z0-9])(?:react(?:s|ing)?(?:\s+to)?|reaction|review|breakdown|explained|tutorial|lesson|how\s+to\s+play|interview|podcast|vlog|behind\s+the\s+scenes|making\s+(?:of|film)|unboxing|tier\s+list|gameplay|walkthrough|playthrough|let'?s\s+play|speedrun|commentary|highlights|montage|news|debate|talk\s+show|q\s*&\s*a|qna)(?:$|[^a-z0-9])|(?:^|[^가-힣])(?:리액션|반응|리뷰|해석|분석|강좌|강의|레슨|튜토리얼|치는\s*법|부르는\s*법|인터뷰|팟캐스트|브이로그|비하인드|메이킹(?:\s*필름)?|언박싱|티어표|게임\s*플레이|공략|하이라이트|토크|수다|뉴스|소식|근황|예능|코멘터리)(?:$|[^가-힣]|(?:은|는|이|가|을|를|의|에|에서|도|로|으로|과|와|랑|이랑|만|부터|까지)(?:$|[^가-힣]))|リアクション|レビュー|解説|講座|レッスン|インタビュー|ポッドキャスト|メイキング|舞台裏|ゲーム実況|プレイ動画|测评|解析|教程|教学|采访|访谈|播客|幕后|花絮|实况|攻略/i;
+  const STRONG_MUSIC_TITLE_RE =
+    /(?:^|[^a-z0-9])(?:m\/?v|p\/?v|ost|bgm|lo-?fi|music\s+video|official\s+(?:mv|m\/v|music\s+video|audio|lyric\s+video|visualizer|track\s+video|live\s+clip|performance\s+video|special\s+clip)|lyric\s+video|color\s+coded\s+lyrics|audio\s+only|full\s+album|live\s+clip|live\s+session|tiny\s+desk\s+concert|the\s+first\s+take|killing\s+voice|it'?s\s+live|soundtrack)(?:$|[^a-z0-9])|뮤직\s*비디오|뮤비|공식\s*음원|오피셜\s*비디오|라이브\s*클립|가사\s*영상|가사\s*번역|노래\s*모음|전곡\s*듣기|플레이리스트|노동요|수면\s*음악|자장가|공부할\s*때\s*듣는|카페\s*음악|로파이|킬링보이스|사운드트랙|주제가|브금|官方\s*mv|官方音乐|纯音乐|歌单|歌ってみた|弾いてみた|作業用\s*bgm|歌詞付き/i;
+  const OST_BGM_OVERRIDE_RE =
+    /(?:^|[^a-z0-9])(?:ost|soundtrack|bgm|theme\s+song)(?:$|[^a-z0-9])|사운드트랙|주제가|브금|作業用\s*bgm|原声带/i;
+  const MODERATE_MUSIC_TITLE_RE =
+    /(?:^|[^a-z0-9])(?:official\s+video|cover|acoustic|instrumental|inst\.?|remix|nightcore|sped\s+up|slowed(?:\s*\+\s*reverb)?|mashup|medley|piano\s+ver\.?|vocal\s+cover|guitar\s+cover|fancam|encore|playlist|lyrics|feat\.?|ft\.?|prod\.?|mv\s+teaser)(?:$|[^a-z0-9])|커버|어쿠스틱|리믹스|메들리|피아노|직캠|앙코르|플리|가사/i;
+  const MUSIC_LABEL_AUTHOR_RE =
+    /vevo$|^(?:1thek|stone music entertainment|genie music|super sound bugs|hybe labels|jyp entertainment|smtown|yg entertainment|starship|the first take|dingo music|dingo freestyle|studio choom|it'?s live|colors|npr music|monstercat|nocopyrightsounds|ncs|trap nation|chillhop music|lofi girl|warner music|sony music|universal music|atlantic records|republic records|avex|king records|lantis)\b/i;
+  const MUSIC_CREDITS_RE =
+    /(?:(?:작사|lyrics?\s*(?:by)?)\s*[:：]?[\s\S]{0,200}(?:작곡|composed?\s*(?:by)?)|(?:작곡|composed?\s*(?:by)?)\s*[:：]?[\s\S]{0,200}(?:편곡|arranged?\s*(?:by)?)|℗\s*\d{4}\b)/i;
+  const MUSIC_KEYWORD_SET = new Set([
+    'k-pop', 'kpop', 'j-pop', 'jpop', 'music video', 'official audio', 'lyrics',
+    'soundtrack', 'ost', 'bgm', 'lofi', 'lo-fi', 'music', 'song', 'mv',
+    '음악', '노래', '멜론', '지니', '발라드', '힙합', '인디', '뮤비',
+    '앨범', '싱글', '플레이리스트', '가사',
+  ]);
+
+  function extractVideoIdFromUrl(rawUrl) {
+    if (!rawUrl) return '';
+    try {
+      const origin = pageWin.location?.origin || 'https://www.youtube.com';
+      const u = new URL(rawUrl, origin);
+      const path = u.pathname || '';
+      if (path === '/watch') return u.searchParams.get('v') || '';
+      const shortsMatch = path.match(/^\/shorts\/([A-Za-z0-9_-]{11})/);
+      if (shortsMatch) return shortsMatch[1];
+      const liveMatch = path.match(/^\/live\/([A-Za-z0-9_-]{11})/);
+      if (liveMatch) return liveMatch[1];
+      if ((u.hostname || '').includes('music.youtube.com')) {
+        return u.searchParams.get('v') || '';
+      }
+      return '';
+    } catch {
+      return '';
+    }
+  }
+
+  function getCurrentVideoId() {
+    const loc = pageWin.location;
+    const host = loc?.hostname || '';
+    const path = loc?.pathname || '';
+    const fromUrl = extractVideoIdFromUrl(loc?.href || '');
+    if (fromUrl) return fromUrl;
+
+    if (host.includes('music.youtube.com')) {
+      const player = unwrap(pageDoc.getElementById('movie_player'));
+      const vdId = typeof player?.getVideoData === 'function' ? player.getVideoData()?.video_id : '';
+      if (vdId) return vdId;
+      const prId = typeof player?.getPlayerResponse === 'function' ? player.getPlayerResponse()?.videoDetails?.videoId : '';
+      if (prId) return prId;
+    }
+    if (path === '/watch' || path.startsWith('/live/') || path.startsWith('/shorts/')) {
+      return extractVideoIdFromUrl(path + (loc?.search || ''));
+    }
+    return '';
+  }
+
   function getActiveWatchVideo() {
     const host = pageWin.location?.hostname || '';
     const path = pageWin.location?.pathname || '';
+    const onShorts = path.startsWith('/shorts/');
     const onVideoPage =
       path === '/watch' ||
       path.startsWith('/live/') ||
-      path.startsWith('/shorts/') ||
+      onShorts ||
       host.includes('music.youtube.com');
     if (!onVideoPage) return null;
+
+    if (onShorts) {
+      return (
+        pageDoc.querySelector(
+          '#shorts-player video.html5-main-video, ytd-reel-video-renderer[is-active] video, #shorts-player video'
+        ) ||
+        pageDoc.querySelector('#movie_player video.html5-main-video') ||
+        pageDoc.querySelector('video.html5-main-video') ||
+        pageDoc.querySelector('video')
+      );
+    }
 
     const player = pageDoc.getElementById('movie_player');
     return (
@@ -1226,145 +1567,685 @@
     );
   }
 
-  function getVideoMeta() {
+  function isAdShowing() {
+    const playerEl = pageDoc.getElementById('movie_player');
+    return Boolean(
+      playerEl?.classList?.contains('ad-showing') ||
+      playerEl?.classList?.contains('ad-interrupting')
+    );
+  }
+
+  function matchesVid(pr, vid) {
+    return Boolean(pr && typeof pr === 'object' && pr.videoDetails && (!vid || pr.videoDetails.videoId === vid));
+  }
+
+  function watchNextMatchesVid(data, vid, attrVid = '') {
+    if (!data || typeof data !== 'object') return false;
+    if (!vid) return true;
+    const epVid = data.currentVideoEndpoint?.watchEndpoint?.videoId;
+    if (epVid) return epVid === vid;
+    if (attrVid) return attrVid === vid;
+    return false;
+  }
+
+  function readRunsOrSimpleText(obj) {
+    if (!obj) return '';
+    if (typeof obj === 'string') return obj;
+    if (typeof obj.simpleText === 'string') return obj.simpleText;
+    if (Array.isArray(obj.runs)) return obj.runs.map((r) => r?.text || '').join('');
+    if (typeof obj.content === 'string') return obj.content;
+    return '';
+  }
+
+  function extractAttributeCardDom(cardEl) {
+    if (!cardEl) return { title: '', subtitle: '' };
+    const linkTitle = cardEl.querySelector('a[aria-label]')?.getAttribute('aria-label')?.trim() || '';
+    const titleEl = cardEl.querySelector(
+      '.ytVideoAttributeViewModelTitle, .yt-video-attribute-view-model__title, h3, h4'
+    );
+    const subEl = cardEl.querySelector(
+      '.ytVideoAttributeViewModelSubtitle, .yt-video-attribute-view-model__subtitle'
+    );
+    const title = (titleEl?.textContent || linkTitle || '').trim();
+    const subtitle = (subEl?.textContent || '').trim();
+    return { title, subtitle };
+  }
+
+  function getVideoMeta(expectedVid = '') {
+    const vid = expectedVid || getCurrentVideoId();
     let title = '';
     let author = '';
-    let officialGame = '';
+    let channelId = '';
+    let category = '';
+    let musicVideoType = '';
+    let lengthSeconds = 0;
+    let isLiveContent = false;
     let keywords = [];
-    let isOfficialMusic = false;
+    let shortDescHead = '';
+    let shortDescTail = '';
+    const officialGames = [];
+    const officialGameIds = [];
+    const seenGames = new Set();
+    const musicCards = [];
+    let isVerifiedArtist = false;
+    let hasPlayerResponse = false;
+    let hasWatchNext = false;
+
+    const pushGame = (rawName, browseId = '') => {
+      const cleaned = String(rawName || '').replace(/[\r\n]+.*$/s, '').trim();
+      if (!cleaned) return;
+      const key = normalizeBase(cleaned);
+      if (key && !seenGames.has(key)) {
+        seenGames.add(key);
+        officialGames.push(cleaned);
+      }
+      if (browseId && !officialGameIds.includes(browseId)) {
+        officialGameIds.push(browseId);
+      }
+    };
 
     try {
-      const vid = new URLSearchParams(pageWin.location?.search || '').get('v');
-      const player = pageDoc.getElementById('movie_player');
-      const pr =
-        player && typeof player.getPlayerResponse === 'function'
-          ? player.getPlayerResponse()
-          : pageDoc.querySelector('ytd-watch-flexy')?.playerData ||
-            pageWin.ytInitialPlayerResponse;
+      const playerEl = pageDoc.getElementById('movie_player');
+      const player = unwrap(playerEl);
+      const flexyEl = pageDoc.querySelector('ytd-watch-flexy');
+      const flexy = unwrap(flexyEl);
+      const flexyVidAttr = flexyEl?.getAttribute?.('video-id') || '';
+      const winUnwrapped = unwrap(pageWin);
 
-      if (pr?.videoDetails && (!vid || !pr.videoDetails.videoId || pr.videoDetails.videoId === vid)) {
-        title = pr.videoDetails.title || '';
-        author = (pr.videoDetails.author || '').trim();
-        keywords = pr.videoDetails.keywords || [];
+      let pr = null;
+      const prCandidates = [
+        cachedNavData.videoId === vid ? cachedNavData.playerResponse : null,
+        typeof player?.getPlayerResponse === 'function' ? unwrap(player.getPlayerResponse()) : null,
+        unwrap(flexy?.playerData),
+        unwrap(winUnwrapped?.ytInitialPlayerResponse),
+      ];
+      for (const cand of prCandidates) {
+        if (matchesVid(cand, vid)) {
+          pr = cand;
+          break;
+        }
       }
-      if (!title) title = pageDoc.title || '';
-      if (!author) {
-        const owner = pageDoc.querySelector(
-          'ytd-watch-metadata #owner #channel-name #text a, ytd-watch-metadata #owner #channel-name #text, #owner #channel-name #text, #owner #channel-name a'
-        );
-        if (owner) author = owner.textContent.trim();
-      }
-      const gameEl = pageDoc.querySelector('ytd-rich-metadata-renderer[role="link"] #title');
-      if (gameEl) officialGame = gameEl.textContent.trim();
 
-      const cat = pr?.microformat?.playerMicroformatRenderer?.category;
-      const mType = pr?.videoDetails?.musicVideoType;
-      const genre = pageDoc.querySelector('meta[itemprop="genre"]');
-      isOfficialMusic =
-        (cat && cat.toLowerCase() === 'music') ||
-        mType === 'MUSIC_VIDEO_TYPE_OMV' ||
-        mType === 'MUSIC_VIDEO_TYPE_ATV' ||
-        Boolean(genre?.content && genre.content.toLowerCase() === 'music');
+      if (pr?.videoDetails) {
+        hasPlayerResponse = true;
+        const vd = pr.videoDetails;
+        title = vd.title || '';
+        author = (vd.author || '').trim();
+        channelId = vd.channelId || '';
+        musicVideoType = vd.musicVideoType || '';
+        lengthSeconds = Number(vd.lengthSeconds) || 0;
+        isLiveContent = Boolean(vd.isLiveContent);
+        keywords = Array.isArray(vd.keywords) ? vd.keywords : [];
+        const rawDesc = typeof vd.shortDescription === 'string' ? vd.shortDescription : '';
+        shortDescHead = rawDesc.slice(0, 1200);
+        shortDescTail = rawDesc.length > 300 ? rawDesc.slice(-300) : rawDesc;
+        category = pr.microformat?.playerMicroformatRenderer?.category || '';
+      }
+
+      let watchNext = null;
+      if (cachedNavData.videoId === vid && watchNextMatchesVid(cachedNavData.watchNext, vid, flexyVidAttr)) {
+        watchNext = cachedNavData.watchNext;
+      } else {
+        const flexyData = unwrap(flexy?.data);
+        if (watchNextMatchesVid(flexyData, vid, flexyVidAttr)) {
+          watchNext = flexyData;
+        } else {
+          const initialData = unwrap(winUnwrapped?.ytInitialData);
+          if (watchNextMatchesVid(initialData, vid, vid && vid === initialPageVideoId ? vid : '')) {
+            watchNext = initialData;
+          }
+        }
+      }
+
+      if (watchNext) {
+        hasWatchNext = true;
+        const primaryResults =
+          watchNext.contents?.twoColumnWatchNextResults?.results?.results?.contents || [];
+        for (const item of primaryResults) {
+          if (!item || typeof item !== 'object') continue;
+          if (!title && item.videoPrimaryInfoRenderer?.title) {
+            title = readRunsOrSimpleText(item.videoPrimaryInfoRenderer.title).trim();
+          }
+          const sec = item.videoSecondaryInfoRenderer;
+          if (sec) {
+            const owner = sec.owner?.videoOwnerRenderer;
+            if (!author && owner?.title) {
+              author = readRunsOrSimpleText(owner.title).trim();
+            }
+            const badges = Array.isArray(owner?.badges) ? owner.badges : [];
+            for (const b of badges) {
+              const mbr = b?.metadataBadgeRenderer;
+              if (
+                mbr?.style === 'BADGE_STYLE_TYPE_VERIFIED_ARTIST' ||
+                mbr?.icon?.iconType === 'AUDIO_BADGE'
+              ) {
+                isVerifiedArtist = true;
+                break;
+              }
+            }
+            const rows = sec.metadataRowContainer?.metadataRowContainerRenderer?.rows || [];
+            for (const row of rows) {
+              const contents = row?.richMetadataRowRenderer?.contents || [];
+              for (const cell of contents) {
+                const rmr = cell?.richMetadataRenderer;
+                if (rmr?.style === 'RICH_METADATA_RENDERER_STYLE_BOX_ART') {
+                  pushGame(
+                    readRunsOrSimpleText(rmr.title),
+                    rmr.endpoint?.browseEndpoint?.browseId || ''
+                  );
+                }
+              }
+            }
+          }
+        }
+
+        const panels = Array.isArray(watchNext.engagementPanels) ? watchNext.engagementPanels : [];
+        for (const panel of panels) {
+          const sdItems =
+            panel?.engagementPanelSectionListRenderer?.content?.structuredDescriptionContentRenderer?.items;
+          if (!Array.isArray(sdItems)) continue;
+          for (const entry of sdItems) {
+            if (!entry || typeof entry !== 'object') continue;
+            const vas = entry.videoAttributesSectionViewModel;
+            if (vas) {
+              const footerBtn = vas.footerButton?.buttonViewModel;
+              const footerIcon = footerBtn?.iconName || '';
+              const footerUrl =
+                footerBtn?.onTap?.innertubeCommand?.commandMetadata?.webCommandMetadata?.url || '';
+              const headerNorm = normalizeBase(vas.headerTitle || '');
+              const attrItems = Array.isArray(vas.videoAttributeViewModels)
+                ? vas.videoAttributeViewModels
+                : [];
+              const isGameSec =
+                footerIcon === 'GAMING_LOGO' ||
+                footerUrl === '/gaming' ||
+                footerUrl.startsWith('/gaming?') ||
+                (GAME_SECTION_HEADERS.has(headerNorm) &&
+                  attrItems.some((m) => m?.imageStyle === 'VIDEO_ATTRIBUTE_IMAGE_STYLE_PORTRAIT'));
+              const isMusicSec =
+                !isGameSec &&
+                (footerIcon === 'MUSIC_LOGO' ||
+                  footerIcon === 'MUSIC' ||
+                  footerUrl.includes('/music') ||
+                  MUSIC_SECTION_HEADERS.has(headerNorm) ||
+                  attrItems.some((m) => m?.imageStyle === 'VIDEO_ATTRIBUTE_IMAGE_STYLE_SQUARE'));
+              if (isGameSec) {
+                for (const m of attrItems) {
+                  pushGame(m?.title, m?.onTap?.innertubeCommand?.browseEndpoint?.browseId || '');
+                }
+              } else if (isMusicSec) {
+                for (const m of attrItems.slice(0, 10 - musicCards.length)) {
+                  musicCards.push({
+                    title: String(m?.title || '').trim(),
+                    subtitle: String(m?.subtitle || '').trim(),
+                    secondarySubtitle: String(m?.secondarySubtitle?.content || '').trim(),
+                  });
+                }
+              }
+            }
+            const hcl = entry.horizontalCardListRenderer;
+            if (hcl) {
+              const hdrTitle = normalizeBase(readRunsOrSimpleText(hcl.header?.richListHeaderRenderer?.title));
+              const cards = Array.isArray(hcl.cards) ? hcl.cards : [];
+              const isMusicList =
+                MUSIC_SECTION_HEADERS.has(hdrTitle) ||
+                cards.some((c) => c?.videoAttributeViewModel?.imageStyle === 'VIDEO_ATTRIBUTE_IMAGE_STYLE_SQUARE');
+              if (isMusicList) {
+                for (const c of cards.slice(0, 10 - musicCards.length)) {
+                  const m = c?.videoAttributeViewModel;
+                  if (m) {
+                    musicCards.push({
+                      title: String(m.title || '').trim(),
+                      subtitle: String(m.subtitle || '').trim(),
+                      secondarySubtitle: String(m.secondarySubtitle?.content || '').trim(),
+                    });
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      const domIsCurrent = !vid || flexyVidAttr === vid || (!flexyVidAttr && vid === initialPageVideoId);
+      if (domIsCurrent) {
+        if (!title) {
+          const domTitle = pageDoc.querySelector('ytd-watch-metadata h1 yt-formatted-string, ytd-watch-metadata h1');
+          title = (domTitle?.textContent || pageDoc.title || '').replace(/\s*-\s*YouTube\s*$/i, '').trim();
+        }
+        if (!author) {
+          const owner = pageDoc.querySelector(
+            'ytd-watch-metadata #owner #channel-name #text a, ytd-watch-metadata #owner #channel-name #text, #owner #channel-name #text, #owner #channel-name a'
+          );
+          if (owner) author = owner.textContent.trim();
+        }
+        if (!category && !pr && vid === initialPageVideoId) {
+          const genre = pageDoc.querySelector('meta[itemprop="genre"]');
+          if (genre?.content) category = genre.content.trim();
+        }
+        if (!isVerifiedArtist) {
+          if (
+            pageDoc.querySelector(
+              'ytd-watch-metadata #owner ytd-badge-supported-renderer .badge-style-type-verified-artist'
+            )
+          ) {
+            isVerifiedArtist = true;
+          } else {
+            const ownerBadges = pageDoc.querySelectorAll(
+              'ytd-watch-metadata #owner ytd-badge-supported-renderer [aria-label]'
+            );
+            for (const b of ownerBadges) {
+              if (ARTIST_BADGE_LABELS.has(normalizeBase(b.getAttribute('aria-label') || ''))) {
+                isVerifiedArtist = true;
+                break;
+              }
+            }
+          }
+        }
+        if (!officialGames.length) {
+          const sections = pageDoc.querySelectorAll('yt-video-attributes-section-view-model');
+          for (const sec of sections) {
+            const hasGamingLink = Boolean(sec.querySelector('a[href="/gaming"], a[href*="/gaming"]'));
+            const hdr = normalizeBase(
+              sec.querySelector('h2, h3, .ytVideoAttributesSectionViewModelHeaderTitle')?.textContent || ''
+            );
+            if (hasGamingLink || GAME_SECTION_HEADERS.has(hdr)) {
+              for (const card of sec.querySelectorAll('yt-video-attribute-view-model')) {
+                const extracted = extractAttributeCardDom(card);
+                pushGame(extracted.title);
+              }
+            }
+          }
+          if (!officialGames.length) {
+            const legacyGames = pageDoc.querySelectorAll(
+              'ytd-rich-metadata-renderer[role="link"] #title, ytd-rich-metadata-renderer #title'
+            );
+            for (const elNode of legacyGames) {
+              pushGame(elNode.textContent);
+            }
+          }
+        }
+        if (!musicCards.length) {
+          const hclNodes = pageDoc.querySelectorAll('ytd-horizontal-card-list-renderer');
+          for (const hclNode of hclNodes) {
+            const hdr = normalizeBase(hclNode.querySelector('#title, h2, h3')?.textContent || '');
+            if (!MUSIC_SECTION_HEADERS.has(hdr)) continue;
+            for (const card of Array.from(hclNode.querySelectorAll('yt-video-attribute-view-model')).slice(0, 10)) {
+              const extracted = extractAttributeCardDom(card);
+              if (extracted.title || extracted.subtitle) musicCards.push(extracted);
+            }
+          }
+        }
+      }
+      if (!title && pageDoc.title && !vid) {
+        title = pageDoc.title.replace(/\s*-\s*YouTube\s*$/i, '').trim();
+      }
     } catch {
       // Ignore transient DOM/player metadata errors during SPA transitions.
     }
 
-    return { title, author, officialGame, keywords, isOfficialMusic };
+    return {
+      videoId: vid,
+      hasPlayerResponse,
+      hasWatchNext,
+      title,
+      author,
+      channelId,
+      category,
+      musicVideoType,
+      lengthSeconds,
+      isLiveContent,
+      keywords,
+      shortDescHead,
+      shortDescTail,
+      officialGame: officialGames[0] || '',
+      officialGames,
+      officialGameIds,
+      musicCards,
+      isVerifiedArtist,
+    };
   }
 
-  function checkSlowCondition() {
-    const bundle = getLocaleBundle();
+  function matchTermInText(matcher, normText, compactText) {
+    if (!matcher || !normText) return false;
+    if (matcher.re && matcher.re.test(normText)) return true;
+    if (matcher.allowCompact && compactText && matcher.compact && compactText.includes(matcher.compact)) {
+      return true;
+    }
+    return false;
+  }
+
+  function matchChannel(meta) {
+    if (!compiledRules.channels.length || !meta.author) return null;
+    const authorNorm = normalizeBase(meta.author);
+    const authorCore = normalizeBase(stripTopicSuffix(meta.author));
+    for (const ch of compiledRules.channels) {
+      if (
+        authorNorm === ch.norm ||
+        authorCore === ch.norm ||
+        (ch.coreNorm && authorCore === ch.coreNorm) ||
+        (ch.re && ch.re.test(authorNorm)) ||
+        (ch.coreRe && ch.coreRe.test(authorCore))
+      ) {
+        return ch;
+      }
+    }
+    return null;
+  }
+
+  function matchGame(meta) {
+    if (!compiledRules.games.length) return null;
+
+    const officialNorms = meta.officialGames.map((g) => ({
+      norm: normalizeBase(g),
+      compact: normalizeCompact(g),
+    }));
+
+    // Pass 1: Official YouTube game card match (exact or boundary across expanded aliases)
+    if (officialNorms.length) {
+      for (const g of compiledRules.games) {
+        for (const og of officialNorms) {
+          for (const alias of g.aliases) {
+            if (
+              og.norm === alias.norm ||
+              (alias.compact.length >= 2 && og.compact === alias.compact) ||
+              (!alias.exactOnly && alias.re && alias.re.test(og.norm))
+            ) {
+              return g;
+            }
+          }
+        }
+      }
+    }
+
+    // Pass 2: Title, keywords, and description hashtags with boundary & gaming-context guards
+    const titleNorm = normalizeBase(meta.title);
+    const titleCompact = normalizeCompact(titleNorm);
+    const keywordsNorm = meta.keywords.length ? normalizeBase(meta.keywords.join(' | ')) : '';
+    const keywordsCompact = keywordsNorm ? normalizeCompact(keywordsNorm) : '';
+    const hashtagMatches = meta.shortDescHead ? meta.shortDescHead.match(/#[^\s#]+/g) : null;
+    const hashtagsNorm = hashtagMatches
+      ? normalizeBase(hashtagMatches.map((h) => h.slice(1)).join(' '))
+      : '';
+    const hashtagsCompact = hashtagsNorm ? normalizeCompact(hashtagsNorm) : '';
+
+    const catNorm = normalizeBase(meta.category);
+    const hasGamingContext =
+      meta.officialGames.length > 0 ||
+      GAMING_CATEGORIES.has(catNorm) ||
+      GAMING_CONTEXT_RE.test(titleNorm) ||
+      (keywordsNorm && GAMING_CONTEXT_RE.test(keywordsNorm));
+
+    for (const g of compiledRules.games) {
+      for (const alias of g.aliases) {
+        if (alias.exactOnly) continue;
+        if (alias.requiresGamingContext && !hasGamingContext) continue;
+        if (
+          matchTermInText(alias, titleNorm, titleCompact) ||
+          matchTermInText(alias, keywordsNorm, keywordsCompact) ||
+          matchTermInText(alias, hashtagsNorm, hashtagsCompact)
+        ) {
+          return g;
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function detectMusic(meta) {
+    const mType = meta.musicVideoType || '';
+    if (mType.startsWith('MUSIC_VIDEO_TYPE_')) return true;
+
+    const titleNorm = normalizeBase(meta.title);
+    const authorNorm = normalizeBase(meta.author);
+    const catNorm = normalizeBase(meta.category);
+    const isSpeechNonMusic = SPEECH_NON_MUSIC_RE.test(titleNorm);
+    const hasStrongMusicTitle = STRONG_MUSIC_TITLE_RE.test(titleNorm);
+
+    if (TOPIC_AUTHOR_RE.test(meta.author)) return true;
+    if (
+      meta.shortDescHead &&
+      PROVIDED_TO_YT_RE.test(meta.shortDescHead) &&
+      (AUTO_GENERATED_RE.test(meta.shortDescTail) ||
+        /released on:\s*\d{4}-\d{2}-\d{2}/i.test(meta.shortDescHead))
+    ) {
+      return true;
+    }
+
+    if (MUSIC_CATEGORIES.has(catNorm)) {
+      return !(isSpeechNonMusic && !hasStrongMusicTitle);
+    }
+
+    if (isSpeechNonMusic) return false;
+    const hasNonMusicContext =
+      (meta.officialGames.length > 0 || NON_MUSIC_CATEGORIES.has(catNorm)) &&
+      !OST_BGM_OVERRIDE_RE.test(titleNorm);
+    if (hasNonMusicContext) return false;
+
+    let score = 0;
+    const hasModerateTitle = !hasStrongMusicTitle && MODERATE_MUSIC_TITLE_RE.test(titleNorm);
+    if (hasStrongMusicTitle) score += 3;
+    else if (hasModerateTitle) score += 2;
+
+    if (meta.isVerifiedArtist) score += 2;
+    if (MUSIC_LABEL_AUTHOR_RE.test(authorNorm)) score += 2;
+
+    if (meta.musicCards.length > 0) {
+      const titleCompact = normalizeCompact(titleNorm);
+      const authorCore = normalizeBase(stripTopicSuffix(meta.author));
+      let matchedCard = false;
+      let matchedArtist = false;
+
+      for (const card of meta.musicCards) {
+        const cTitleNorm = normalizeBase(card.title);
+        const cTitleCompact = normalizeCompact(cTitleNorm);
+        const cSubNorm = normalizeBase(card.subtitle);
+        if (cTitleNorm.length >= 2) {
+          const isShortAscii = /^[a-z0-9\s]+$/.test(cTitleNorm) && cTitleNorm.length <= 4;
+          const titleHit = isShortAscii
+            ? Boolean(compileBoundaryRegex(cTitleNorm)?.test(titleNorm))
+            : titleNorm.includes(cTitleNorm) ||
+              (cTitleCompact.length >= 3 && titleCompact.includes(cTitleCompact));
+          if (titleHit) {
+            matchedCard = true;
+            break;
+          }
+        }
+        if (cSubNorm.length >= 2) {
+          const isShortArtist = /^[a-z0-9\s]+$/.test(cSubNorm) && cSubNorm.length <= 4;
+          const artistHit = isShortArtist
+            ? Boolean(
+                compileBoundaryRegex(cSubNorm)?.test(titleNorm) ||
+                compileBoundaryRegex(cSubNorm)?.test(authorCore)
+              )
+            : titleNorm.includes(cSubNorm) ||
+              authorCore === cSubNorm ||
+              authorCore.includes(cSubNorm);
+          if (artistHit) matchedArtist = true;
+        }
+      }
+
+      if (matchedCard) {
+        score += 3;
+      } else if (
+        matchedArtist &&
+        (meta.musicCards.length === 1 || (meta.lengthSeconds > 0 && meta.lengthSeconds <= 600))
+      ) {
+        score += 2;
+      } else if (
+        meta.musicCards.length >= 3 &&
+        (hasStrongMusicTitle || hasModerateTitle || meta.lengthSeconds >= 900)
+      ) {
+        score += 3;
+      }
+    }
+
+    if (meta.shortDescHead && MUSIC_CREDITS_RE.test(meta.shortDescHead)) score += 2;
+
+    if (meta.keywords.length) {
+      let kwHits = 0;
+      for (const kw of meta.keywords) {
+        const kNorm = normalizeBase(kw);
+        if (MUSIC_KEYWORD_SET.has(kNorm)) {
+          kwHits += 1;
+          if (kwHits >= 2) break;
+        }
+      }
+      if (kwHits >= 2) score += 1;
+    }
+
+    return score >= 3;
+  }
+
+  function isMusicUrlContext() {
     const host = pageWin.location?.hostname || '';
     const search = pageWin.location?.search || '';
+    if (host.includes('music.youtube.com')) return true;
+    try {
+      const list = new URLSearchParams(search).get('list');
+      return Boolean(list && list.startsWith('RD'));
+    } catch {
+      return search.includes('list=RD');
+    }
+  }
 
-    if (config.musicAuto1x && (host.includes('music.youtube.com') || search.includes('list=RD'))) {
-      return { isSlow: true, label: bundle.toast.music };
+  function checkSlowCondition(metaInput = null) {
+    const bundle = getLocaleBundle();
+
+    if (config.musicAuto1x && isMusicUrlContext()) {
+      return { isSlow: true, label: bundle.toast.music, kind: 'music', definitive: true };
     }
 
-    const meta = getVideoMeta();
-    const lAuthor = meta.author.toLowerCase();
-    const lTitle = meta.title.toLowerCase();
-    const lGame = meta.officialGame.toLowerCase();
+    const meta = metaInput || getVideoMeta(getCurrentVideoId());
 
-    for (const ch of config.channels) {
-      const t = ch.trim().toLowerCase();
-      if (t && lAuthor.includes(t)) {
-        return { isSlow: true, label: bundle.toast.channel(ch) };
+    const matchedChannel = matchChannel(meta);
+    if (matchedChannel) {
+      return {
+        isSlow: true,
+        label: bundle.toast.channel(matchedChannel.raw),
+        kind: 'channel',
+        definitive: true,
+      };
+    }
+
+    const matchedGame = matchGame(meta);
+    if (matchedGame) {
+      return {
+        isSlow: true,
+        label: bundle.toast.game(matchedGame.raw),
+        kind: 'game',
+        definitive: true,
+      };
+    }
+
+    if (config.musicAuto1x && detectMusic(meta)) {
+      return { isSlow: true, label: bundle.toast.music, kind: 'music', definitive: true };
+    }
+
+    if (compiledRules.keywords.length && meta.title) {
+      const titleNorm = normalizeBase(meta.title);
+      const titleCompact = normalizeCompact(titleNorm);
+      for (const kw of compiledRules.keywords) {
+        if (matchTermInText(kw, titleNorm, titleCompact)) {
+          return { isSlow: true, label: kw.raw, kind: 'keyword', definitive: true };
+        }
       }
     }
-    for (const g of config.games) {
-      const t = g.trim().toLowerCase();
-      if (
-        t &&
-        (lGame.includes(t) ||
-          lTitle.includes(t) ||
-          meta.keywords.some((k) => String(k).toLowerCase().includes(t)))
-      ) {
-        return { isSlow: true, label: bundle.toast.game(g) };
-      }
-    }
-    if (config.musicAuto1x && meta.isOfficialMusic) {
-      return { isSlow: true, label: bundle.toast.music };
-    }
-    for (const kw of config.keywords) {
-      const t = kw.trim().toLowerCase();
-      if (t && lTitle.includes(t)) {
-        return { isSlow: true, label: kw };
-      }
-    }
-    return { isSlow: false, label: '' };
+
+    return { isSlow: false, label: '', kind: 'default', definitive: false };
   }
 
   // ---------------------------------------------------------------------------
   // Speed Application & Toast Notification
   // ---------------------------------------------------------------------------
 
+  function resolveToastHost() {
+    const fsEl = getFullscreenElement();
+    const path = pageWin.location?.pathname || '';
+    const onShorts = path.startsWith('/shorts/');
+    if (fsEl) {
+      const fsPlayer = fsEl.id === 'movie_player' ? fsEl : fsEl.querySelector?.('#movie_player');
+      if (fsPlayer && fsPlayer.offsetWidth !== 0) return { container: fsPlayer, fixed: false };
+      return { container: fsEl, fixed: true };
+    }
+    if (onShorts) {
+      const shortsHost =
+        pageDoc.getElementById('shorts-player') ||
+        pageDoc.querySelector('ytd-reel-video-renderer[is-active]');
+      if (shortsHost && shortsHost.offsetWidth !== 0) {
+        return { container: shortsHost, fixed: false };
+      }
+    } else {
+      const player = pageDoc.getElementById('movie_player');
+      if (player && player.offsetWidth !== 0 && (player.offsetWidth === undefined || player.offsetWidth >= 120)) {
+        return { container: player, fixed: false };
+      }
+    }
+    const body = pageDoc.body || pageDoc.documentElement;
+    return body ? { container: body, fixed: true } : null;
+  }
+
   function showToast(speedText, reason = '') {
     ensureStyles();
-    const container = pageDoc.getElementById('movie_player') || pageDoc.body;
-    if (!container) return;
+    const target = resolveToastHost();
+    if (!target) return;
 
-    let toast = pageDoc.getElementById(TOAST_ID);
-    if (!toast) {
-      toast = el('div', '', el('span', 'ytss-toast-rate'), el('span', 'ytss-toast-meta'));
-      toast.id = TOAST_ID;
+    if (!toastEl || !toastEl.isConnected && !pageDoc.contains(toastEl)) {
+      toastEl = pageDoc.getElementById(TOAST_ID);
+      if (toastEl) {
+        toastRateEl = toastEl.querySelector('.ytss-toast-rate');
+        toastMetaEl = toastEl.querySelector('.ytss-toast-meta');
+      }
     }
-    if (toast.parentElement !== container) {
-      container.appendChild(toast);
+    if (!toastEl) {
+      toastRateEl = el('span', 'ytss-toast-rate');
+      toastMetaEl = el('span', 'ytss-toast-meta');
+      toastEl = el('div', '', toastRateEl, toastMetaEl);
+      toastEl.id = TOAST_ID;
+    }
+    if (toastEl.parentElement !== target.container) {
+      target.container.appendChild(toastEl);
     }
 
-    toast.querySelector('.ytss-toast-rate').textContent = speedText;
-    const metaEl = toast.querySelector('.ytss-toast-meta');
-    metaEl.textContent = reason;
-    metaEl.style.display = reason ? 'inline' : 'none';
-    toast.classList.add('is-visible');
+    toastEl.classList.toggle('ytss-toast-fixed', target.fixed);
+    toastRateEl.textContent = speedText;
+    toastMetaEl.textContent = reason;
+    toastMetaEl.style.display = reason ? 'inline' : 'none';
+    toastEl.classList.add('is-visible');
     clearTimeout(toastTimeout);
-    toastTimeout = setTimeout(() => toast.classList.remove('is-visible'), 900);
+    toastTimeout = setTimeout(() => toastEl?.classList.remove('is-visible'), 1100);
   }
 
   function setSpeed(rate, manual = false) {
-    const video =
-      pageDoc.querySelector('#movie_player video.html5-main-video') ||
-      pageDoc.querySelector('video.html5-main-video') ||
-      pageDoc.querySelector('video');
+    const video = getActiveWatchVideo() || pageDoc.querySelector('video.html5-main-video, video');
     if (!video) return;
 
     const normalized = clampSpeed(rate, config.defaultSpeed);
-    if (video.playbackRate !== normalized) {
-      video.playbackRate = normalized;
-    }
+    internalRateWriteUntil = performance.now() + 250;
 
-    const player = pageDoc.getElementById('movie_player');
+    const player = unwrap(pageDoc.getElementById('movie_player'));
     if (player && typeof player.setPlaybackRate === 'function') {
       try {
-        player.setPlaybackRate(normalized);
+        const curPlayerRate =
+          typeof player.getPlaybackRate === 'function' ? player.getPlaybackRate() : -1;
+        if (Math.abs(curPlayerRate - normalized) > 0.005) {
+          player.setPlaybackRate(normalized);
+        }
       } catch {
         // Ignore player API mismatches when custom wrappers restrict calls.
       }
     }
 
+    if (Math.abs(video.playbackRate - normalized) > 0.005) {
+      video.playbackRate = normalized;
+    }
+
     const btn = pageDoc.getElementById(FIXED_BTN_ID);
-    if (btn) btn.textContent = formatSpeedText(normalized);
+    const speedLabel = formatSpeedText(normalized);
+    if (btn && btn.textContent !== speedLabel) {
+      btn.textContent = speedLabel;
+    }
 
     if (manual) {
       isManualOverride = true;
@@ -1372,34 +2253,140 @@
     }
   }
 
-  function clearPendingPlayListener() {
-    if (pendingPlayTarget && pendingPlayHandler) {
-      pendingPlayTarget.removeEventListener('play', pendingPlayHandler);
+  function handleVideoMediaEvent() {
+    const vid = getCurrentVideoId();
+    const isYtMusic = (pageWin.location?.hostname || '').includes('music.youtube.com');
+    if ((!vid && !isYtMusic) || isManualOverride) return;
+    if (lastAppliedState && lastAppliedState.videoId === vid) {
+      const video = getActiveWatchVideo();
+      if (video && Math.abs(video.playbackRate - lastAppliedState.rate) > 0.005 && !isAdShowing()) {
+        setSpeed(lastAppliedState.rate, false);
+      }
+      return;
     }
-    pendingPlayTarget = null;
-    pendingPlayHandler = null;
+    evaluateAndApply({ trigger: 'media' });
+  }
+
+  function handleVideoRateChange(e) {
+    const video = e.currentTarget;
+    if (!video || performance.now() < internalRateWriteUntil) return;
+    const vid = getCurrentVideoId();
+    if (!vid) return;
+
+    if (!isManualOverride && lastAppliedState && lastAppliedState.videoId === vid) {
+      if (Math.abs(video.playbackRate - lastAppliedState.rate) <= 0.005) return;
+      const elapsed = performance.now() - lastAutoApplyAt;
+      const isDefaultReset = Math.abs(video.playbackRate - 1) < 0.005;
+      const withinStartupGrace =
+        (elapsed < 1000 && video.currentTime < 0.5) ||
+        (isDefaultReset && (elapsed < 1800 || video.currentTime < 1.2));
+      if (withinStartupGrace && startupResetRetries < 4 && !isAdShowing()) {
+        startupResetRetries += 1;
+        setSpeed(lastAppliedState.rate, false);
+        return;
+      }
+      isManualOverride = true;
+    }
+
+    const btn = pageDoc.getElementById(FIXED_BTN_ID);
+    const label = formatSpeedText(video.playbackRate);
+    if (btn && btn.textContent !== label) {
+      btn.textContent = label;
+    }
+  }
+
+  function bindVideoGuards(video) {
+    if (!video || boundVideo === video) return;
+    if (boundVideo) {
+      boundVideo.removeEventListener('loadedmetadata', handleVideoMediaEvent);
+      boundVideo.removeEventListener('play', handleVideoMediaEvent);
+      boundVideo.removeEventListener('playing', handleVideoMediaEvent);
+      boundVideo.removeEventListener('ratechange', handleVideoRateChange);
+    }
+    boundVideo = video;
+    video.addEventListener('loadedmetadata', handleVideoMediaEvent);
+    video.addEventListener('play', handleVideoMediaEvent);
+    video.addEventListener('playing', handleVideoMediaEvent);
+    video.addEventListener('ratechange', handleVideoRateChange);
+  }
+
+  function evaluateAndApply({ trigger = '', force = false, showToastOnSame = false } = {}) {
+    const vid = getCurrentVideoId();
+    const video = getActiveWatchVideo();
+    if (!video) return false;
+    bindVideoGuards(video);
+
+    if (isManualOverride && !force) return false;
+
+    if (!force && vid && trigger === 'nav-start' && config.musicAuto1x && isMusicUrlContext()) {
+      const bundle = getLocaleBundle();
+      const target = config.slowSpeed;
+      const isFirst = !lastAppliedState || lastAppliedState.videoId !== vid;
+      const changed = isFirst || Math.abs(lastAppliedState.rate - target) > 0.005 || lastAppliedState.label !== bundle.toast.music;
+      setSpeed(target, false);
+      lastAppliedState = { videoId: vid, rate: target, isSlow: true, label: bundle.toast.music, kind: 'music', definitive: true };
+      lastEvalKey = `${vid}|url-music|${compiledRules.revision}`;
+      lastAutoApplyAt = performance.now();
+      startupResetRetries = 0;
+      if (changed || showToastOnSame) showToast(`${target.toFixed(2)}x`, bundle.toast.music);
+      return true;
+    }
+
+    const meta = getVideoMeta(vid);
+    if (!force && vid && !meta.hasPlayerResponse && !meta.hasWatchNext && trigger === 'nav-start') {
+      return false;
+    }
+
+    const evalKey = `${vid}|${meta.hasPlayerResponse ? 1 : 0}|${meta.hasWatchNext ? 1 : 0}|${meta.officialGames.length}|${meta.musicCards.length}|${meta.isVerifiedArtist ? 1 : 0}|${meta.author.length}|${meta.title.length}|${compiledRules.revision}`;
+    if (!force && evalKey === lastEvalKey && lastAppliedState?.videoId === vid) {
+      if (Math.abs(video.playbackRate - lastAppliedState.rate) > 0.005 && !isAdShowing()) {
+        setSpeed(lastAppliedState.rate, false);
+      }
+      return true;
+    }
+
+    let cond = checkSlowCondition(meta);
+    if (
+      !force &&
+      lastAppliedState?.videoId === vid &&
+      lastAppliedState.definitive &&
+      !cond.isSlow
+    ) {
+      lastEvalKey = evalKey;
+      if (Math.abs(video.playbackRate - lastAppliedState.rate) > 0.005 && !isAdShowing()) {
+        setSpeed(lastAppliedState.rate, false);
+      }
+      return true;
+    }
+
+    const target = cond.isSlow ? config.slowSpeed : config.defaultSpeed;
+    const isFirstApply = !lastAppliedState || lastAppliedState.videoId !== vid;
+    const changedDecision =
+      isFirstApply ||
+      Math.abs(lastAppliedState.rate - target) > 0.005 ||
+      lastAppliedState.label !== cond.label;
+
+    setSpeed(target, false);
+    lastAppliedState = {
+      videoId: vid,
+      rate: target,
+      isSlow: cond.isSlow,
+      label: cond.label,
+      kind: cond.kind,
+      definitive: cond.definitive,
+    };
+    lastEvalKey = evalKey;
+    lastAutoApplyAt = performance.now();
+    startupResetRetries = 0;
+
+    if (changedDecision || showToastOnSame) {
+      showToast(`${target.toFixed(2)}x`, cond.isSlow ? cond.label : '');
+    }
+    return true;
   }
 
   function applySpeedForCurrentVideo() {
-    if (isManualOverride) return;
-    const video = getActiveWatchVideo();
-    if (!video) return;
-
-    const cond = checkSlowCondition();
-    const target = cond.isSlow ? config.slowSpeed : config.defaultSpeed;
-    setSpeed(target, false);
-    showToast(`${target.toFixed(2)}x`, cond.isSlow ? cond.label : '');
-
-    clearPendingPlayListener();
-    pendingPlayTarget = video;
-    pendingPlayHandler = () => {
-      pendingPlayTarget = null;
-      pendingPlayHandler = null;
-      if (!isManualOverride && Math.abs(video.playbackRate - target) > 0.01) {
-        setSpeed(target, false);
-      }
-    };
-    video.addEventListener('play', pendingPlayHandler, { once: true });
+    evaluateAndApply({ trigger: 'manual-reapply', force: true, showToastOnSame: true });
   }
 
   // ---------------------------------------------------------------------------
@@ -1470,8 +2457,8 @@
   function updateFixedButtonMetadata(btn) {
     if (!btn) return;
     const tooltip = getLocaleBundle().buttonTooltip;
-    btn.title = tooltip;
-    btn.setAttribute('aria-label', tooltip);
+    if (btn.title !== tooltip) btn.title = tooltip;
+    if (btn.getAttribute('aria-label') !== tooltip) btn.setAttribute('aria-label', tooltip);
   }
 
   function mountFixedButton() {
@@ -1481,11 +2468,19 @@
     );
     if (!bar) return false;
 
+    const vid = getCurrentVideoId();
     const video = getActiveWatchVideo();
-    const rate = video ? video.playbackRate : config.defaultSpeed;
+    const rate =
+      lastAppliedState?.videoId === vid
+        ? lastAppliedState.rate
+        : video
+          ? video.playbackRate
+          : config.defaultSpeed;
+    const speedLabel = formatSpeedText(rate);
+
     const existing = bar.querySelector(`#${FIXED_BTN_ID}`);
     if (existing) {
-      existing.textContent = formatSpeedText(rate);
+      if (existing.textContent !== speedLabel) existing.textContent = speedLabel;
       updateFixedButtonMetadata(existing);
       return true;
     }
@@ -1500,7 +2495,7 @@
     const btn = el('button');
     btn.id = FIXED_BTN_ID;
     btn.type = 'button';
-    btn.textContent = formatSpeedText(rate);
+    btn.textContent = speedLabel;
     updateFixedButtonMetadata(btn);
     ['width', 'height', 'min-width'].forEach((p) =>
       btn.style.setProperty(p, `${size}px`, 'important')
@@ -1514,29 +2509,155 @@
     return true;
   }
 
-  function handleNavigation() {
-    const vId = new URLSearchParams(pageWin.location?.search || '').get('v');
-    if (!vId) {
-      currentVideoId = '';
-      clearTimeout(navApplyTimer);
-      clearPendingPlayListener();
-      return;
-    }
-    if (vId !== currentVideoId) {
-      currentVideoId = vId;
-      isManualOverride = false;
-      clearTimeout(navApplyTimer);
-      navApplyTimer = setTimeout(applySpeedForCurrentVideo, 350);
-    }
-    mountRetryTimers.forEach((id) => clearTimeout(id));
-    mountRetryTimers = [50, 150, 400, 800, 1500, 2500].map((delay) =>
-      setTimeout(mountFixedButton, delay)
-    );
+  function cancelMountRetry() {
+    clearTimeout(mountRetryTimer);
+    mountRetryTimer = null;
   }
 
-  ['yt-navigate-finish', 'yt-page-data-updated', 'popstate', 'load'].forEach((ev) =>
+  function scheduleMountFixedButton(confirmAfterRender = false) {
+    cancelMountRetry();
+    const isYtMusic = (pageWin.location?.hostname || '').includes('music.youtube.com');
+    if (!getCurrentVideoId() || isYtMusic) return;
+    const mountedNow = mountFixedButton();
+    if (mountedNow && !confirmAfterRender) return;
+    const delays = mountedNow ? [350, 1000] : MOUNT_RETRY_DELAYS;
+    let step = 0;
+    const tick = () => {
+      mountRetryTimer = null;
+      if (!getCurrentVideoId()) return;
+      const ok = mountFixedButton();
+      if (ok && (!mountedNow || step >= delays.length)) return;
+      if (step < delays.length) {
+        mountRetryTimer = setTimeout(tick, delays[step++]);
+      }
+    };
+    mountRetryTimer = setTimeout(tick, delays[step++]);
+  }
+
+  function resetVideoSession(nextVid) {
+    if (initialPageVideoId && nextVid !== initialPageVideoId) {
+      initialPageVideoId = '';
+    }
+    currentVideoId = nextVid;
+    isManualOverride = false;
+    lastAppliedState = null;
+    lastEvalKey = '';
+    cachedNavData = { videoId: '', playerResponse: null, watchNext: null };
+    clearTimeout(navApplyTimer);
+    navApplyTimer = null;
+  }
+
+  function handleNavigateStart(e) {
+    const detail = unwrap(unwrap(e)?.detail);
+    const targetUrl =
+      detail?.url ||
+      detail?.endpoint?.commandMetadata?.webCommandMetadata?.url ||
+      pageWin.location?.href ||
+      '';
+    const nextVid = extractVideoIdFromUrl(targetUrl) || getCurrentVideoId();
+    if (nextVid !== currentVideoId) {
+      resetVideoSession(nextVid);
+      if (nextVid) {
+        const applied = evaluateAndApply({ trigger: 'nav-start' });
+        if (!applied) {
+          navApplyTimer = setTimeout(() => {
+            navApplyTimer = null;
+            evaluateAndApply({ trigger: 'nav-fallback' });
+          }, 250);
+        }
+      }
+    }
+  }
+
+  function handlePlayerUpdated() {
+    clearTimeout(navApplyTimer);
+    navApplyTimer = null;
+    const vid = getCurrentVideoId();
+    const isYtMusic = (pageWin.location?.hostname || '').includes('music.youtube.com');
+    if (!vid && !isYtMusic) return;
+    if (vid !== currentVideoId) {
+      resetVideoSession(vid);
+    }
+    evaluateAndApply({ trigger: 'player-updated' });
+  }
+
+  function handleNavigateFinish(e) {
+    clearTimeout(navApplyTimer);
+    navApplyTimer = null;
+    const vid = getCurrentVideoId();
+    const isYtMusic = (pageWin.location?.hostname || '').includes('music.youtube.com');
+    if (!vid && !(isYtMusic && getActiveWatchVideo())) {
+      resetVideoSession('');
+      cancelMountRetry();
+      return;
+    }
+    if (vid !== currentVideoId) {
+      resetVideoSession(vid);
+    }
+
+    const detail = unwrap(unwrap(e)?.detail);
+    const resp = unwrap(detail?.response);
+    const pr = unwrap(resp?.playerResponse);
+    const wn = unwrap(resp?.response);
+    if (pr || wn) {
+      cachedNavData = {
+        videoId: vid,
+        playerResponse: matchesVid(pr, vid)
+          ? pr
+          : cachedNavData.videoId === vid
+            ? cachedNavData.playerResponse
+            : null,
+        watchNext:
+          wn && watchNextMatchesVid(wn, vid)
+            ? wn
+            : cachedNavData.videoId === vid
+              ? cachedNavData.watchNext
+              : null,
+      };
+    }
+
+    evaluateAndApply({ trigger: 'navigate-finish' });
+    scheduleMountFixedButton(true);
+  }
+
+  function handleNavigation() {
+    const vid = getCurrentVideoId();
+    const isYtMusic = (pageWin.location?.hostname || '').includes('music.youtube.com');
+    if (!vid && !(isYtMusic && getActiveWatchVideo())) {
+      resetVideoSession('');
+      cancelMountRetry();
+      return;
+    }
+    if (vid !== currentVideoId) {
+      resetVideoSession(vid);
+    }
+    evaluateAndApply({ trigger: 'page-data' });
+    scheduleMountFixedButton(true);
+  }
+
+  function handleEarlyMedia(e) {
+    const t = e.target;
+    if (!t || (t.tagName || '').toUpperCase() !== 'VIDEO') return;
+    const vid = getCurrentVideoId();
+    const isYtMusic = (pageWin.location?.hostname || '').includes('music.youtube.com');
+    if (!vid && !isYtMusic) return;
+    if (t === getActiveWatchVideo()) {
+      if (vid !== currentVideoId) {
+        resetVideoSession(vid);
+      }
+      bindVideoGuards(t);
+      evaluateAndApply({ trigger: 'early-media' });
+    }
+  }
+
+  pageWin.addEventListener('yt-navigate-start', handleNavigateStart);
+  pageWin.addEventListener('yt-player-updated', handlePlayerUpdated);
+  pageWin.addEventListener('yt-navigate-finish', handleNavigateFinish);
+  ['yt-page-data-updated', 'popstate', 'load'].forEach((ev) =>
     pageWin.addEventListener(ev, handleNavigation)
   );
+  pageDoc.addEventListener('loadedmetadata', handleEarlyMedia, true);
+  pageDoc.addEventListener('play', handleEarlyMedia, true);
   pageWin.addEventListener('fullscreenchange', () => {
     if (!modalState || modalState.backdrop.hidden) return;
     const host = getFullscreenElement() || pageDoc.body || pageDoc.documentElement;
@@ -1812,7 +2933,7 @@
     };
 
     btnCurGame.addEventListener('click', () => {
-      const rawGame = getVideoMeta().officialGame.replace(/[\r\n]+.*$/s, '').trim();
+      const rawGame = getVideoMeta(getCurrentVideoId()).officialGame.replace(/[\r\n]+.*$/s, '').trim();
       addGameName(rawGame, true);
     });
     btnAddGame.addEventListener('click', () => addGameName(gameInput.value, false));
@@ -1831,7 +2952,7 @@
 
     btnCurCh.addEventListener('click', () => {
       const bundle = getLocaleBundle();
-      const name = (getVideoMeta().author || '').trim();
+      const name = (getVideoMeta(getCurrentVideoId()).author || '').trim();
       if (!name) {
         showFeedback(bundle.feedback.channelNotFound, true);
         return;
@@ -2052,6 +3173,22 @@
     GM_registerMenuCommand(getLocaleBundle().menuSettings, openSettingsModal);
   }
 
+  function bootstrapOnDomReady() {
+    const vid = getCurrentVideoId();
+    const isYtMusic = (pageWin.location?.hostname || '').includes('music.youtube.com');
+    if (!initialPageVideoId && vid) initialPageVideoId = vid;
+    if (vid || (isYtMusic && getActiveWatchVideo())) {
+      if (vid !== currentVideoId) currentVideoId = vid;
+      evaluateAndApply({ trigger: 'init' });
+      scheduleMountFixedButton();
+    }
+  }
+
   registerTampermonkeyMenu();
-  setTimeout(handleNavigation, 400);
+  initialPageVideoId = extractVideoIdFromUrl(pageWin.location?.href || '');
+  if (pageDoc.readyState === 'loading') {
+    pageDoc.addEventListener('DOMContentLoaded', bootstrapOnDomReady, { once: true });
+  } else {
+    bootstrapOnDomReady();
+  }
 })();
